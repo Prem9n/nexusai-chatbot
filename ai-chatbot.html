@@ -60,11 +60,9 @@
   .send-btn:hover { transform: scale(1.05); }
   .send-btn svg { width: 16px; height: 16px; fill: white; }
   .input-hint { text-align: center; font-size: 10px; color: var(--text2); margin-top: 10px; opacity: 0.6; }
-  .bubble strong { color: var(--accent3); }
   .bubble pre { background: rgba(0,0,0,0.4); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 10px 0; overflow-x: auto; font-size: 12px; }
   .bubble code { font-family: 'DM Mono', monospace; background: rgba(124,106,255,0.15); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   .bubble pre code { background: transparent; padding: 0; }
-  .notice { background: rgba(124,106,255,0.1); border: 1px solid rgba(124,106,255,0.3); border-radius: 10px; padding: 10px 14px; font-size: 11px; color: var(--text2); text-align: center; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -103,13 +101,9 @@
 </div>
 
 <script>
-  const API_KEY = "AIzaSyDKbI-xS2UXY1CAIPo2_4NNvAAmwBoJb5o";
-  const MODELS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-pro"
-  ];
-  let currentModel = 0;
+  const API_KEY = "AIzaSyDVsWJMKDI7t3yC6reCelJyvbiC80qWuu0";
+  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+
   let conversationHistory = [];
   let isLoading = false;
 
@@ -117,19 +111,15 @@
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   }
-
   function handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   }
-
   function sendSuggestion(text) {
     document.getElementById('userInput').value = text;
     sendMessage();
   }
-
   function clearChat() {
     conversationHistory = [];
-    currentModel = 0;
     document.getElementById('chatArea').innerHTML = `
       <div class="welcome" id="welcome">
         <div class="welcome-icon">✦</div>
@@ -143,68 +133,43 @@
         </div>
       </div>`;
   }
-
-  async function tryAPI(text) {
-    for (let i = 0; i < MODELS.length; i++) {
-      const model = MODELS[i];
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
-      try {
-        const body = {
-          contents: [
-            ...conversationHistory,
-            { role: 'user', parts: [{ text }] }
-          ],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1024
-          }
-        };
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.candidates && data.candidates[0]) {
-            return { success: true, text: data.candidates[0].content.parts[0].text, model };
-          }
-        }
-      } catch(e) {
-        continue;
-      }
-    }
-    return { success: false };
-  }
-
   async function sendMessage() {
     const input = document.getElementById('userInput');
     const text = input.value.trim();
     if (!text || isLoading) return;
-
     const welcome = document.getElementById('welcome');
     if (welcome) welcome.remove();
-
     appendMessage('user', text);
     input.value = ''; input.style.height = 'auto';
-
+    conversationHistory.push({ role: 'user', parts: [{ text }] });
     const typingId = showTyping();
     isLoading = true;
-
-    const result = await tryAPI(text);
-    removeTyping(typingId);
-
-    if (result.success) {
-      conversationHistory.push({ role: 'user', parts: [{ text }] });
-      conversationHistory.push({ role: 'model', parts: [{ text: result.text }] });
-      appendMessage('ai', result.text);
-    } else {
-      appendMessage('ai', '⚠️ Cannot connect to AI. Please make sure you have internet connection and try again.');
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: "You are NexusAI, a helpful and intelligent assistant. Be friendly and concise." }] },
+          contents: conversationHistory,
+          generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+        })
+      });
+      removeTyping(typingId);
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || 'API error');
+      }
+      const data = await response.json();
+      const reply = data.candidates[0].content.parts[0].text;
+      conversationHistory.push({ role: 'model', parts: [{ text: reply }] });
+      appendMessage('ai', reply);
+    } catch (err) {
+      removeTyping(typingId);
+      appendMessage('ai', '⚠️ Error: ' + err.message);
+      conversationHistory.pop();
     }
-
     isLoading = false;
   }
-
   function appendMessage(role, text) {
     const chatArea = document.getElementById('chatArea');
     const div = document.createElement('div');
@@ -218,7 +183,6 @@
     chatArea.appendChild(div);
     chatArea.scrollTop = chatArea.scrollHeight;
   }
-
   function formatText(text) {
     text = text.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
     text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -227,7 +191,6 @@
     text = text.replace(/\n/g, '<br>');
     return text;
   }
-
   function showTyping() {
     const chatArea = document.getElementById('chatArea');
     const id = 'typing-' + Date.now();
@@ -238,7 +201,6 @@
     chatArea.scrollTop = chatArea.scrollHeight;
     return id;
   }
-
   function removeTyping(id) {
     const el = document.getElementById(id);
     if (el) el.remove();
